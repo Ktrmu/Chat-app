@@ -11,7 +11,7 @@ import { BarChart } from "@/components/charts/bar-chart"
 import { LineChart } from "@/components/charts/line-chart"
 import { PieChart } from "@/components/charts/pie-chart"
 import { DonutChart } from "@/components/charts/donut-chart"
-import { Printer, Download, FileText } from "lucide-react"
+import { Printer, Download, FileText, Calendar } from "lucide-react"
 import type { VisualizationConfig } from "@/types/visualization"
 
 interface ProfessionalReportProps {
@@ -29,7 +29,52 @@ export function ProfessionalReport({ visualizations }: ProfessionalReportProps) 
       const originalContents = document.body.innerHTML
       const printContents = reportRef.current.innerHTML
 
-      document.body.innerHTML = printContents
+      // Add print-specific styles
+      const style = document.createElement("style")
+      style.innerHTML = `
+        @page {
+          size: A4;
+          margin: 1.5cm;
+        }
+        body {
+          font-family: 'Arial', sans-serif;
+          line-height: 1.5;
+          color: #333;
+        }
+        h1, h2, h3 {
+          page-break-after: avoid;
+        }
+        .visualization-card {
+          page-break-inside: avoid;
+        }
+        .page-break {
+          page-break-before: always;
+        }
+        .report-header {
+          position: running(header);
+          text-align: center;
+          font-size: 10pt;
+          color: #666;
+        }
+        .report-footer {
+          position: running(footer);
+          text-align: center;
+          font-size: 8pt;
+          color: #666;
+        }
+        @page {
+          @top-center { content: element(header) }
+          @bottom-center { content: element(footer) }
+        }
+      `
+      document.head.appendChild(style)
+
+      document.body.innerHTML = `
+        <div class="report-header">Health Data Analysis Report - ${new Date().toLocaleDateString()}</div>
+        <div class="report-footer">Page <span class="page-number"></span></div>
+        ${printContents}
+      `
+
       window.print()
       document.body.innerHTML = originalContents
 
@@ -70,49 +115,62 @@ export function ProfessionalReport({ visualizations }: ProfessionalReportProps) 
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center bg-white dark:bg-gray-950 p-4 rounded-lg shadow-sm sticky top-0 z-10">
         <h2 className="text-2xl font-bold">Professional Report</h2>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={handlePrint} className="flex items-center gap-2">
             <Printer className="h-4 w-4" />
             <span>Print</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={handleDownloadPDF} className="flex items-center gap-2">
+          <Button variant="default" size="sm" onClick={handleDownloadPDF} className="flex items-center gap-2">
             <Download className="h-4 w-4" />
             <span>Download PDF</span>
           </Button>
         </div>
       </div>
 
-      <div ref={reportRef} className="space-y-6 p-6 bg-white dark:bg-gray-950 rounded-lg border">
-        <div className="text-center border-b pb-4">
-          <h1 className="text-3xl font-bold">Data Analysis Report</h1>
-          <p className="text-muted-foreground mt-2">Generated on {new Date().toLocaleDateString()}</p>
+      <div ref={reportRef} className="space-y-8 p-8 bg-white dark:bg-gray-950 rounded-lg border shadow-sm">
+        <div className="text-center border-b pb-6 mb-8">
+          <h1 className="text-4xl font-bold mb-2">Health Data Analysis Report</h1>
+          <div className="flex items-center justify-center text-muted-foreground gap-2 mt-4">
+            <Calendar className="h-4 w-4" />
+            <p>
+              Generated on{" "}
+              {new Date().toLocaleDateString("en-US", {
+                weekday: "long",
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </p>
+          </div>
         </div>
 
-        <div className="space-y-4">
-          <h2 className="text-2xl font-bold">Executive Summary</h2>
-          <div className="prose dark:prose-invert max-w-none">{formattedSummary}</div>
+        <div className="space-y-6">
+          <h2 className="text-2xl font-bold border-b pb-2">Executive Summary</h2>
+          <div className="prose dark:prose-invert max-w-none text-lg">{formattedSummary}</div>
         </div>
 
-        <div className="space-y-4">
-          <h2 className="text-2xl font-bold">Key Visualizations</h2>
+        <div className="page-break space-y-6">
+          <h2 className="text-2xl font-bold border-b pb-2">Key Visualizations</h2>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-            <TabsList>
-              <TabsTrigger value="all">All Charts</TabsTrigger>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+            <TabsList className="w-full justify-start border-b pb-0 mb-6">
+              <TabsTrigger value="all" className="text-base">
+                All Charts
+              </TabsTrigger>
               {chartTypes.map(
                 (type) =>
                   groupedVisualizations[type].length > 0 && (
-                    <TabsTrigger key={type} value={type}>
+                    <TabsTrigger key={type} value={type} className="text-base">
                       {type.charAt(0).toUpperCase() + type.slice(1)} Charts
                     </TabsTrigger>
                   ),
               )}
             </TabsList>
 
-            <TabsContent value="all" className="space-y-4">
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <TabsContent value="all" className="space-y-6">
+              <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
                 {visualizations.map((viz, index) => (
                   <VisualizationCard key={index} config={viz} />
                 ))}
@@ -122,8 +180,8 @@ export function ProfessionalReport({ visualizations }: ProfessionalReportProps) 
             {chartTypes.map(
               (type) =>
                 groupedVisualizations[type].length > 0 && (
-                  <TabsContent key={type} value={type} className="space-y-4">
-                    <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <TabsContent key={type} value={type} className="space-y-6">
+                    <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
                       {groupedVisualizations[type].map((viz, index) => (
                         <VisualizationCard key={index} config={viz} />
                       ))}
@@ -134,25 +192,41 @@ export function ProfessionalReport({ visualizations }: ProfessionalReportProps) 
           </Tabs>
         </div>
 
-        <div className="space-y-4">
-          <h2 className="text-2xl font-bold">Conclusions</h2>
+        <div className="page-break space-y-6">
+          <h2 className="text-2xl font-bold border-b pb-2">Conclusions & Recommendations</h2>
           <div className="prose dark:prose-invert max-w-none">
-            <p>Based on the analysis of the provided data, several key insights have emerged:</p>
-            <ul>
-              <li>The data shows significant patterns that can inform strategic decision-making</li>
-              <li>There are clear correlations between key health indicators</li>
-              <li>Regional variations highlight areas that may require targeted interventions</li>
-              <li>Temporal trends indicate progress in some areas while revealing challenges in others</li>
+            <p className="text-lg">
+              Based on the analysis of the provided health data, several key insights have emerged:
+            </p>
+            <ul className="space-y-2 my-4">
+              <li>
+                The data reveals significant patterns that can inform strategic health interventions and policy
+                decisions
+              </li>
+              <li>
+                There are clear correlations between key health indicators that suggest areas for integrated approaches
+              </li>
+              <li>Regional variations highlight areas that may require targeted healthcare resource allocation</li>
+              <li>Temporal trends indicate progress in some health metrics while revealing challenges in others</li>
             </ul>
-            <p>
+            <h3 className="text-xl font-semibold mt-6">Recommendations</h3>
+            <ol className="space-y-2 my-4">
+              <li>Implement targeted interventions in regions showing below-average health outcomes</li>
+              <li>Allocate additional resources to address the health indicators showing negative trends</li>
+              <li>Establish regular monitoring and evaluation processes for key health metrics</li>
+              <li>Develop integrated approaches that address multiple correlated health factors simultaneously</li>
+            </ol>
+            <p className="text-lg mt-4">
               These findings suggest opportunities for improving health outcomes through data-driven approaches and
-              targeted resource allocation.
+              targeted resource allocation. Continued data collection and analysis will be essential for tracking
+              progress and refining interventions over time.
             </p>
           </div>
         </div>
 
-        <div className="mt-8 pt-4 border-t text-center text-sm text-muted-foreground">
+        <div className="mt-12 pt-6 border-t text-center text-sm text-muted-foreground">
           <p>This report was automatically generated by the Health Data Analysis Dashboard</p>
+          <p className="mt-1">Confidential - For internal use only</p>
         </div>
       </div>
     </div>
@@ -161,22 +235,25 @@ export function ProfessionalReport({ visualizations }: ProfessionalReportProps) 
 
 function VisualizationCard({ config }: { config: VisualizationConfig }) {
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="pb-2">
-        <CardTitle>{config.title}</CardTitle>
-        <CardDescription>{config.description}</CardDescription>
+    <Card className="overflow-hidden shadow-sm visualization-card">
+      <CardHeader className="pb-2 bg-muted/30">
+        <CardTitle className="text-xl">{config.title}</CardTitle>
+        <CardDescription className="text-sm">{config.description}</CardDescription>
       </CardHeader>
-      <CardContent className="h-[300px]">
+      <CardContent className="h-[300px] p-4">
         {config.type === "bar" && <BarChart data={config.data} />}
         {config.type === "line" && <LineChart data={config.data} />}
         {config.type === "pie" && <PieChart data={config.data} />}
         {config.type === "donut" && <DonutChart data={config.data} />}
       </CardContent>
-      <CardFooter className="bg-muted/50 py-2 px-6 text-xs text-muted-foreground">
+      <CardFooter className="bg-muted/30 py-3 px-6 text-xs text-muted-foreground flex justify-between">
         <div className="flex items-center gap-2">
           <FileText className="h-3 w-3" />
           <span>Data source: Health Data Analysis</span>
         </div>
+        <span>
+          Chart ID: {config.type}-{config.title.substring(0, 10).toLowerCase().replace(/\s/g, "-")}
+        </span>
       </CardFooter>
     </Card>
   )
@@ -200,9 +277,11 @@ function formatSummary(summary: string): React.ReactNode {
             .map((item) => item.trim())
 
           return (
-            <ul key={index} className="list-disc pl-6 my-4">
+            <ul key={index} className="list-disc pl-6 my-4 space-y-2">
               {listItems.map((item, i) => (
-                <li key={i}>{item}</li>
+                <li key={i} className="text-base">
+                  {item}
+                </li>
               ))}
             </ul>
           )
@@ -213,15 +292,15 @@ function formatSummary(summary: string): React.ReactNode {
           const [heading, ...content] = paragraph.split(":")
           return (
             <div key={index} className="my-4">
-              <h3 className="text-lg font-semibold">{heading}</h3>
-              <p>{content.join(":")}</p>
+              <h3 className="text-xl font-semibold mt-6">{heading}</h3>
+              <p className="text-base mt-2">{content.join(":")}</p>
             </div>
           )
         }
 
         // Regular paragraph
         return (
-          <p key={index} className="my-4">
+          <p key={index} className="my-4 text-base">
             {paragraph}
           </p>
         )
