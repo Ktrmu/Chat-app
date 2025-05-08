@@ -2,7 +2,6 @@
 
 import { useState, useRef } from "react"
 import { FileUploader } from "./file-uploader"
-import { DHIS2Connector } from "./dhis2-connector"
 import { APIConnector } from "./api-connector"
 import { WhatsAppConnector } from "./whatsapp-connector"
 import { ChatInterface } from "./chat-interface"
@@ -127,9 +126,9 @@ function DashboardContent() {
 
         <TabsContent value="upload" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <DHIS2Connector onDataFetched={handleDataLoaded} />
             <APIConnector onDataFetched={handleDataLoaded} />
-            <div className="md:col-span-2">
+            <div className="flex flex-col">
+              <h3 className="text-lg font-medium mb-2">Upload Your Own Data</h3>
               <FileUploader onDataUploaded={handleDataLoaded} />
             </div>
           </div>

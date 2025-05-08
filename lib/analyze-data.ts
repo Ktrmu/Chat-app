@@ -44,7 +44,7 @@ export async function analyzeData(data: any): Promise<string> {
 
     // Add health data context if applicable
     const healthContext = isHealthData
-      ? `This appears to be health data, possibly from DHIS2. 
+      ? `This appears to be health data. 
          When analyzing, consider health indicators, trends, and potential public health implications.
          Focus on identifying patterns that might be relevant for health policy or intervention planning.`
       : ""
@@ -121,42 +121,34 @@ function getDataStatistics(data: any): string {
   }
 }
 
-// Function to detect if the data is likely health data from DHIS2
+// Function to detect if the data is likely health data
 function detectHealthData(data: any): boolean {
   if (!data) return false
 
   // Check if it's an array of objects
   if (Array.isArray(data) && data.length > 0 && typeof data[0] === "object") {
-    // Look for common DHIS2 fields
+    // Look for common health-related fields
     const firstItem = data[0]
     const keys = Object.keys(firstItem)
 
-    const dhis2Fields = [
-      "id",
-      "name",
-      "description",
-      "numerator",
-      "denominator",
-      "dataElement",
-      "period",
-      "orgUnit",
-      "categoryOptionCombo",
-      "value",
-      "storedBy",
-      "created",
-      "lastUpdated",
+    const healthFields = [
+      "patient",
+      "diagnosis",
+      "treatment",
+      "medication",
+      "disease",
+      "health",
+      "medical",
+      "clinical",
+      "hospital",
+      "doctor",
+      "nurse",
+      "symptom",
+      "indicator",
     ]
 
-    // Check if any DHIS2 fields are present
-    const matchingFields = dhis2Fields.filter((field) => keys.includes(field))
-
-    // If we have at least 2 matching fields, it's likely DHIS2 data
-    return matchingFields.length >= 2
-  }
-
-  // Check if it's a DHIS2 response object
-  if (typeof data === "object" && data !== null) {
-    return "dataValues" in data || "indicators" in data || "dataElements" in data
+    // Check if any health-related terms are present in the keys
+    return keys.some((key) => healthFields.some((term) => key.toLowerCase().includes(term.toLowerCase())))
   }
 
   return false

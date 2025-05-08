@@ -59,8 +59,8 @@
     "vaul": "^0.9.6",
     "zod": "^3.24.1",
     "chart.js": "latest",
-    "@ai-sdk/groq": "latest",
-    "ai": "latest"
+    "ai": "latest",
+    "@ai-sdk/groq": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",
