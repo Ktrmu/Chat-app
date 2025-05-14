@@ -4,16 +4,30 @@ import { groq } from "@ai-sdk/groq"
 import { generateText } from "ai"
 import type { VisualizationConfig } from "@/types/visualization"
 
+// Cache for storing auto-generated visualizations
+const autoVisualizationCache = new Map<string, { visualizations: VisualizationConfig[]; timestamp: number }>()
+const CACHE_TTL = 30 * 60 * 1000 // 30 minutes in milliseconds
+
 // Function to automatically generate multiple visualizations from data
 export async function generateAutoVisualizations(data: any): Promise<VisualizationConfig[]> {
   try {
+    // Create a cache key based on a simplified version of the data
+    const cacheKey = JSON.stringify(data).substring(0, 200)
+
+    // Check if we have cached visualizations
+    const cachedVisualizations = autoVisualizationCache.get(cacheKey)
+    if (cachedVisualizations && Date.now() - cachedVisualizations.timestamp < CACHE_TTL) {
+      console.log("Using cached auto-visualizations")
+      return cachedVisualizations.visualizations
+    }
+
     // If data is not an array or is empty, return empty array
     if (!Array.isArray(data) || data.length === 0) {
       return []
     }
 
-    // Extract a sample of the data for analysis
-    const sampleData = data.slice(0, 10)
+    // Extract a sample of the data for analysis - reduced sample size
+    const sampleData = data.slice(0, 5) // Reduced from 10
     const dataString = JSON.stringify(sampleData, null, 2)
 
     // Get field information
@@ -28,68 +42,154 @@ export async function generateAutoVisualizations(data: any): Promise<Visualizati
       return []
     }
 
-    // Generate visualization suggestions using LLM
-    const { text } = await generateText({
-      model: groq("llama-3.1-8b-instant"),
-      prompt: `
-        You are a data visualization expert. Based on the provided data sample, suggest 5 different visualizations that would be most insightful.
-        For each visualization, provide a JSON object with the following structure:
-        {
-          "type": "bar" | "line" | "pie" | "donut",
-          "title": "Title of the visualization",
-          "description": "Brief description of what the visualization shows",
-          "data": {
-            "labels": ["Label1", "Label2", ...],
-            "values": [value1, value2, ...],
-            "datasetLabel": "Optional label for the dataset"
-          }
+    // Limit the number of fields to reduce token usage
+    const limitedNumericFields = numericFields.slice(0, 3)
+    const limitedCategoricalFields = categoricalFields.slice(0, 3)
+
+    // Implement retry logic with exponential backoff
+    const maxRetries = 3
+    let retryDelay = 1000 // Start with 1 second delay
+    let lastError: any = null
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        // Generate visualization suggestions using LLM - reduced token usage
+        const { text } = await generateText({
+          model: groq("llama-3.1-8b-instant"),
+          prompt: `
+            You are a data visualization expert. Based on the provided data sample, suggest 3 different visualizations that would be most insightful.
+            For each visualization, provide a JSON object with the following structure:
+            {
+              "type": "bar" | "line" | "pie" | "donut",
+              "title": "Title of the visualization",
+              "description": "Brief description of what the visualization shows",
+              "data": {
+                "labels": ["Label1", "Label2", "Label3"],
+                "values": [value1, value2, value3],
+                "datasetLabel": "Optional label for the dataset"
+              }
+            }
+            
+            IMPORTANT RULES:
+            1. DO NOT use ellipses (...) in the JSON - include only complete arrays with actual values
+            2. DO NOT use placeholders - use real data from the sample
+            3. Limit to 5-7 data points maximum for readability
+            4. Return your response as a valid JSON array containing these 3 visualization objects
+            5. Make sure all JSON syntax is correct and all quotes are properly escaped
+            
+            Available categorical fields: ${limitedCategoricalFields.join(", ")}
+            Available numeric fields: ${limitedNumericFields.join(", ")}
+            
+            DATA SAMPLE:
+            ${dataString}
+            
+            VISUALIZATIONS:
+          `,
+          maxTokens: 1200, // Reduced from 2000
+        })
+
+        // Extract the JSON array from the response
+        const jsonMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/m)
+        if (!jsonMatch) {
+          console.error("Could not extract JSON array from response")
+          throw new Error("Failed to extract JSON array from response")
         }
-        
-        Return your response as a JSON array containing these 5 visualization objects.
-        
-        Available categorical fields: ${categoricalFields.join(", ")}
-        Available numeric fields: ${numericFields.join(", ")}
-        
-        DATA SAMPLE:
-        ${dataString}
-        
-        VISUALIZATIONS:
-      `,
-      maxTokens: 2000,
-    })
 
-    // Extract the JSON array from the response
-    const jsonMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/m)
-    if (!jsonMatch) {
-      console.error("Could not extract JSON array from response")
-      return generateFallbackVisualizations(data, categoricalFields, numericFields)
-    }
+        try {
+          // Clean up any potential ellipses or invalid JSON syntax before parsing
+          const cleanedJsonString = cleanJsonString(jsonMatch[0])
 
-    try {
-      const visualizations = JSON.parse(jsonMatch[0])
+          // Parse the cleaned JSON
+          const visualizations = JSON.parse(cleanedJsonString)
 
-      // Validate each visualization
-      const validVisualizations = visualizations.filter(
-        (viz: any) =>
-          viz.type && viz.title && viz.data && Array.isArray(viz.data.labels) && Array.isArray(viz.data.values),
-      )
+          // Validate each visualization
+          const validVisualizations = visualizations
+            .filter((viz: any) => {
+              // Basic validation
+              if (!viz.type || !viz.title || !viz.data) return false
 
-      if (validVisualizations.length === 0) {
-        return generateFallbackVisualizations(data, categoricalFields, numericFields)
+              // Ensure labels and values are arrays
+              if (!Array.isArray(viz.data.labels) || !Array.isArray(viz.data.values)) return false
+
+              // Ensure arrays have the same length
+              if (viz.data.labels.length !== viz.data.values.length) {
+                // Fix the arrays to have the same length
+                const minLength = Math.min(viz.data.labels.length, viz.data.values.length)
+                viz.data.labels = viz.data.labels.slice(0, minLength)
+                viz.data.values = viz.data.values.slice(0, minLength)
+              }
+
+              return true
+            })
+            .slice(0, 3) // Ensure we only return up to 3 visualizations
+
+          if (validVisualizations.length === 0) {
+            return generateFallbackVisualizations(data, limitedCategoricalFields, limitedNumericFields)
+          }
+
+          // Cache the successful visualizations
+          autoVisualizationCache.set(cacheKey, {
+            visualizations: validVisualizations,
+            timestamp: Date.now(),
+          })
+
+          return validVisualizations
+        } catch (parseError) {
+          console.error("Error parsing visualizations:", parseError)
+          throw new Error("Failed to parse visualizations")
+        }
+      } catch (error: any) {
+        lastError = error
+        console.error(`Attempt ${attempt + 1} failed:`, error.message || error)
+
+        // Check if it's a rate limit error
+        if (error.message && error.message.includes("Rate limit reached")) {
+          // Extract the suggested wait time if available
+          const waitTimeMatch = error.message.match(/Please try again in (\d+\.\d+)s/)
+          const waitTime = waitTimeMatch ? Number.parseFloat(waitTimeMatch[1]) * 1000 : retryDelay
+
+          console.log(`Rate limit hit. Waiting for ${waitTime}ms before retry`)
+          await new Promise((resolve) => setTimeout(resolve, waitTime))
+        } else {
+          // For other errors, use exponential backoff
+          await new Promise((resolve) => setTimeout(resolve, retryDelay))
+          retryDelay *= 2 // Exponential backoff
+        }
       }
-
-      return validVisualizations
-    } catch (parseError) {
-      console.error("Error parsing visualizations:", parseError)
-      return generateFallbackVisualizations(data, categoricalFields, numericFields)
     }
+
+    console.error(`Failed after ${maxRetries} attempts. Last error:`, lastError)
+    return generateFallbackVisualizations(data, limitedCategoricalFields, limitedNumericFields)
   } catch (error) {
     console.error("Error generating auto visualizations:", error)
     return []
   }
 }
 
-// Function to generate fallback visualizations when LLM fails
+// Function to clean JSON string by removing ellipses and fixing common issues
+function cleanJsonString(jsonString: string): string {
+  const cleaned = jsonString
+    // Replace ellipses in arrays with empty brackets or closing brackets
+    .replace(/\[\s*\.{3}\s*\]/g, "[]")
+    .replace(/\[\s*"[^"]*"\s*,\s*\.{3}\s*\]/g, '["placeholder"]')
+    .replace(/\[\s*\d+\s*,\s*\.{3}\s*\]/g, "[0]")
+    // Replace ellipses in the middle of arrays
+    .replace(/,\s*\.{3}\s*,/g, ",")
+    .replace(/,\s*\.{3}\s*\]/g, "]")
+    .replace(/\[\s*\.{3}\s*,/g, "[")
+    // Remove trailing commas in arrays and objects
+    .replace(/,\s*\]/g, "]")
+    .replace(/,\s*\}/g, "}")
+    // Fix any remaining ellipses
+    .replace(/\.{3}/g, "")
+    // Remove any comments
+    .replace(/\/\/.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+
+  return cleaned
+}
+
+// Function to generate fallback visualizations when LLM fails - unchanged
 function generateFallbackVisualizations(
   data: any[],
   categoricalFields: string[],
@@ -132,7 +232,7 @@ function generateFallbackVisualizations(
 
       visualizations.push({
         type: chartType,
-        title: `${numField} by ${catField}`,
+        title: `${numField.charAt(0).toUpperCase() + numField.slice(1)} by ${catField}`,
         description: `Distribution of ${numField} across different ${catField} categories`,
         data: {
           labels: categories.map(String),
