@@ -92,8 +92,14 @@ function DashboardContent() {
         <div className="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="upload">Data Sources</TabsTrigger>
-            <TabsTrigger value="chat" disabled={!hasData}>
+            <TabsTrigger value="chat" disabled={!hasData} className="relative">
               Chat & Analyze
+              {hasData && (
+                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
+                </span>
+              )}
             </TabsTrigger>
             <TabsTrigger value="dashboard" disabled={!hasData}>
               Dashboard
@@ -134,8 +140,10 @@ function DashboardContent() {
           </div>
         </TabsContent>
 
-        <TabsContent value="chat" className="space-y-4">
-          <ChatInterface onVisualizationCreated={() => setActiveTab("dashboard")} />
+        <TabsContent value="chat" className="space-y-4 px-0 sm:px-4">
+          <div className="max-w-5xl mx-auto">
+            <ChatInterface onVisualizationCreated={() => setActiveTab("dashboard")} />
+          </div>
         </TabsContent>
 
         <TabsContent value="dashboard" className="space-y-4">
