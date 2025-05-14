@@ -3,7 +3,20 @@
 import type React from "react"
 
 import { useState, useRef, useEffect } from "react"
-import { Send, Bot, User, Sparkles, Clock, Copy, Info, HelpCircle, AlertTriangle, BarChart } from "lucide-react"
+import {
+  Send,
+  Bot,
+  User,
+  Sparkles,
+  Clock,
+  Copy,
+  Info,
+  HelpCircle,
+  AlertTriangle,
+  BarChart,
+  History,
+  Trash2,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -13,6 +26,16 @@ import { useData } from "@/context/data-context"
 import { generateResponse } from "@/lib/generate-response"
 import { generateVisualization } from "@/lib/generate-visualization"
 import { useToast } from "@/components/ui/use-toast"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog"
 
 interface ChatInterfaceProps {
   onVisualizationCreated: () => void
@@ -24,6 +47,14 @@ interface Message {
   timestamp: Date
 }
 
+interface ChatSession {
+  id: string
+  title: string
+  messages: Message[]
+  lastUpdated: Date
+  dataHash: string // To associate chat with specific data
+}
+
 export function ChatInterface({ onVisualizationCreated }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -31,24 +62,110 @@ export function ChatInterface({ onVisualizationCreated }: ChatInterfaceProps) {
   const [isRateLimited, setIsRateLimited] = useState(false)
   const [rateLimitTimer, setRateLimitTimer] = useState(0)
   const [visualizationAttempts, setVisualizationAttempts] = useState(0)
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([])
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
+
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const rateLimitTimerRef = useRef<NodeJS.Timeout | null>(null)
   const { data, summary, addVisualization, visualizations } = useData()
   const { toast } = useToast()
 
+  // Generate a simple hash for the data to identify it
+  const getDataHash = (data: any): string => {
+    if (!data) return "no-data"
+    const str = typeof data === "string" ? data : JSON.stringify(data)
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i)
+      hash = (hash << 5) - hash + char
+      hash = hash & hash // Convert to 32bit integer
+    }
+    return hash.toString(16)
+  }
+
+  const dataHash = getDataHash(data)
+
+  // Load chat sessions from localStorage
+  useEffect(() => {
+    const savedSessions = localStorage.getItem("chatSessions")
+    if (savedSessions) {
+      try {
+        const sessions = JSON.parse(savedSessions) as ChatSession[]
+        // Convert string dates back to Date objects
+        sessions.forEach((session) => {
+          session.lastUpdated = new Date(session.lastUpdated)
+          session.messages.forEach((msg) => {
+            msg.timestamp = new Date(msg.timestamp)
+          })
+        })
+        setChatSessions(sessions)
+
+        // Find a session for the current data
+        const matchingSession = sessions.find((s) => s.dataHash === dataHash)
+        if (matchingSession) {
+          setCurrentSessionId(matchingSession.id)
+          setMessages(matchingSession.messages)
+        }
+      } catch (error) {
+        console.error("Error loading chat sessions:", error)
+      }
+    }
+  }, [dataHash])
+
   // Add initial message with data summary
   useEffect(() => {
-    if (summary) {
-      setMessages([
-        {
-          role: "assistant",
-          content: `I've analyzed your data. Here's a summary:\n\n${summary}\n\nYou can ask me questions about your data or request visualizations.`,
-          timestamp: new Date(),
-        },
-      ])
+    if (summary && messages.length === 0) {
+      const initialMessage = {
+        role: "assistant" as const,
+        content: `I've analyzed your data. Here's a summary:\n\n${summary}\n\nYou can ask me questions about your data or request visualizations.`,
+        timestamp: new Date(),
+      }
+
+      setMessages([initialMessage])
+
+      // Create a new session if we don't have one for this data
+      if (!currentSessionId) {
+        const newSessionId = `session_${Date.now()}`
+        const newSession: ChatSession = {
+          id: newSessionId,
+          title: "Data Analysis Session",
+          messages: [initialMessage],
+          lastUpdated: new Date(),
+          dataHash,
+        }
+
+        setChatSessions((prev) => [...prev, newSession])
+        setCurrentSessionId(newSessionId)
+
+        // Save to localStorage
+        localStorage.setItem("chatSessions", JSON.stringify([...chatSessions, newSession]))
+      }
     }
-  }, [summary])
+  }, [summary, messages.length, currentSessionId, dataHash, chatSessions])
+
+  // Save messages to localStorage when they change
+  useEffect(() => {
+    if (currentSessionId && messages.length > 0) {
+      setChatSessions((prev) => {
+        const updated = prev.map((session) => {
+          if (session.id === currentSessionId) {
+            return {
+              ...session,
+              messages,
+              lastUpdated: new Date(),
+            }
+          }
+          return session
+        })
+
+        // Save to localStorage
+        localStorage.setItem("chatSessions", JSON.stringify(updated))
+        return updated
+      })
+    }
+  }, [messages, currentSessionId])
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -237,6 +354,81 @@ export function ChatInterface({ onVisualizationCreated }: ChatInterfaceProps) {
     })
   }
 
+  const loadChatSession = (sessionId: string) => {
+    const session = chatSessions.find((s) => s.id === sessionId)
+    if (session) {
+      setMessages(session.messages)
+      setCurrentSessionId(sessionId)
+      setShowHistory(false)
+    }
+  }
+
+  const startNewChat = () => {
+    // Create a new session
+    const newSessionId = `session_${Date.now()}`
+    const initialMessage = {
+      role: "assistant" as const,
+      content: `I've analyzed your data. Here's a summary:\n\n${summary}\n\nYou can ask me questions about your data or request visualizations.`,
+      timestamp: new Date(),
+    }
+
+    const newSession: ChatSession = {
+      id: newSessionId,
+      title: `Chat Session ${chatSessions.length + 1}`,
+      messages: [initialMessage],
+      lastUpdated: new Date(),
+      dataHash,
+    }
+
+    setChatSessions((prev) => [...prev, newSession])
+    setCurrentSessionId(newSessionId)
+    setMessages([initialMessage])
+
+    // Save to localStorage
+    localStorage.setItem("chatSessions", JSON.stringify([...chatSessions, newSession]))
+    setShowHistory(false)
+  }
+
+  const clearChatHistory = () => {
+    // Filter out sessions with the current data hash
+    const updatedSessions = chatSessions.filter((session) => session.dataHash !== dataHash)
+    setChatSessions(updatedSessions)
+    localStorage.setItem("chatSessions", JSON.stringify(updatedSessions))
+
+    // Reset current session
+    setCurrentSessionId(null)
+
+    // Add initial message with data summary
+    const initialMessage = {
+      role: "assistant" as const,
+      content: `I've analyzed your data. Here's a summary:\n\n${summary}\n\nYou can ask me questions about your data or request visualizations.`,
+      timestamp: new Date(),
+    }
+    setMessages([initialMessage])
+
+    // Create a new session
+    const newSessionId = `session_${Date.now()}`
+    const newSession: ChatSession = {
+      id: newSessionId,
+      title: "Data Analysis Session",
+      messages: [initialMessage],
+      lastUpdated: new Date(),
+      dataHash,
+    }
+
+    setChatSessions((prev) => [...prev.filter((s) => s.dataHash !== dataHash), newSession])
+    setCurrentSessionId(newSessionId)
+
+    // Save to localStorage
+    localStorage.setItem("chatSessions", JSON.stringify([...updatedSessions, newSession]))
+
+    toast({
+      title: "Chat history cleared",
+      description: "All chat history for this dataset has been cleared",
+      duration: 2000,
+    })
+  }
+
   // Suggested questions for the user
   const suggestedQuestions = [
     "What are the key trends in this data?",
@@ -245,6 +437,9 @@ export function ChatInterface({ onVisualizationCreated }: ChatInterfaceProps) {
     "Show a pie chart of distribution by category",
   ]
 
+  // Filter sessions for the current data
+  const currentDataSessions = chatSessions.filter((session) => session.dataHash === dataHash)
+
   return (
     <Card className="w-full shadow-md border-2">
       <CardHeader className="flex flex-row items-center justify-between py-4 px-6 space-y-0 bg-primary/5 dark:bg-primary/10 border-b">
@@ -252,22 +447,86 @@ export function ChatInterface({ onVisualizationCreated }: ChatInterfaceProps) {
           <Sparkles className="h-5 w-5 text-primary" />
           Chat with your data
         </CardTitle>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <HelpCircle className="h-4 w-4" />
-                <span className="sr-only">Help</span>
+        <div className="flex items-center gap-2">
+          <Dialog open={showHistory} onOpenChange={setShowHistory}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="flex items-center gap-2">
+                <History className="h-4 w-4" />
+                <span className="hidden sm:inline">Chat History</span>
               </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-sm">
-              <p>
-                Ask questions about your data or request visualizations. Try phrases like "Show me a chart of..." or
-                "What are the trends in..."
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Chat History</DialogTitle>
+                <DialogDescription>View and load previous chat sessions for this dataset.</DialogDescription>
+              </DialogHeader>
+
+              <div className="py-4">
+                {currentDataSessions.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-4">No chat history found for this dataset.</p>
+                ) : (
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                    {currentDataSessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className={`p-3 rounded-md border cursor-pointer hover:bg-muted transition-colors ${
+                          session.id === currentSessionId ? "bg-primary/10 border-primary/30" : "bg-card"
+                        }`}
+                        onClick={() => loadChatSession(session.id)}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div className="font-medium">{session.title}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {new Date(session.lastUpdated).toLocaleDateString()} at{" "}
+                            {new Date(session.lastUpdated).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </div>
+                        </div>
+                        <div className="text-sm text-muted-foreground mt-1 line-clamp-1">
+                          {session.messages[session.messages.length - 1]?.content.substring(0, 60)}...
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter className="flex justify-between items-center">
+                <Button variant="destructive" size="sm" onClick={clearChatHistory} className="flex items-center gap-2">
+                  <Trash2 className="h-4 w-4" />
+                  Clear History
+                </Button>
+                <div>
+                  <Button variant="outline" size="sm" onClick={startNewChat} className="mr-2">
+                    New Chat
+                  </Button>
+                  <DialogClose asChild>
+                    <Button size="sm">Close</Button>
+                  </DialogClose>
+                </div>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <HelpCircle className="h-4 w-4" />
+                  <span className="sr-only">Help</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-sm">
+                <p>
+                  Ask questions about your data or request visualizations. Try phrases like "Show me a chart of..." or
+                  "What are the trends in..."
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </CardHeader>
       <CardContent className="p-4 bg-background dark:bg-background">
         <ScrollArea
@@ -568,8 +827,6 @@ function formatTimestamp(date: Date): string {
   } else if (diffInMinutes < 24 * 60) {
     return `${Math.floor(diffInMinutes / 60)}h ago`
   } else {
-    const month = date.toLocaleDateString([], { month: "short" })
-    const hour = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     return (
       date.toLocaleDateString([], { month: "short", day: "numeric" }) +
       " at " +

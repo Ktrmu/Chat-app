@@ -82,9 +82,9 @@ function DashboardContent() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-bold tracking-tight">Health Data Analysis Dashboard</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Health Data Analysis AI Dashboard</h1>
         <p className="mt-2 text-muted-foreground">
-          Connect to health data sources, analyze data, and generate professional reports
+          Connect to health data sources, analyze with AI, and generate professional reports
         </p>
       </div>
 
